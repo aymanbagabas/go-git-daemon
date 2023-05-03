@@ -156,8 +156,8 @@ func (s *Config) Serve(l net.Listener) error {
 				idleTimeout:   time.Duration(s.IdleTimeout) * time.Second,
 				closeCanceler: cancel,
 			}
-			if s.Timeout > 0 {
-				sconn.maxDeadline = time.Now().Add(time.Duration(s.Timeout) * time.Second)
+			if s.MaxTimeout > 0 {
+				sconn.maxDeadline = time.Now().Add(time.Duration(s.MaxTimeout) * time.Second)
 			}
 
 			s.connections.Add(sconn)

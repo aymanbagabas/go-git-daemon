@@ -64,12 +64,11 @@ type Config struct {
 	// Zero means no timeout.
 	IdleTimeout int
 
-	// Timeout is the timeout (in seconds) for specific client sub-requests.
-	// This includes the time it takes for the server to process the
-	// sub-request and the time spent waiting for the next client’s request.
+	// MaxTimeout is the timeout (in seconds) is the total time the connection
+	// is allowed to be open.
 	//
 	// Zero means no timeout.
-	Timeout int
+	MaxTimeout int
 
 	// MaxConnections is the maximum number of simultaneous connections.
 	//
