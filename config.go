@@ -26,7 +26,7 @@ func (s Service) String() string {
 
 // AccessHook is a git-daemon access hook. It takes a service name, repository
 // path, and a client address as arguments.
-type AccessHook func(Service, string, string) error
+type AccessHook func(service Service, path string, addr string) error
 
 // Config represents the Git daemon configuration.
 type Config struct {
