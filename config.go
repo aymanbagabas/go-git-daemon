@@ -125,6 +125,7 @@ var (
 
 	// DefaultConfig is the default Git daemon configuration.
 	DefaultConfig = Config{
+		Addr:           DefaultAddr,
 		MaxConnections: 32,
 		UploadPack:     true,
 		UploadArchive:  false,
