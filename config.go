@@ -127,7 +127,7 @@ var (
 	DefaultConfig = Config{
 		MaxConnections: 32,
 		UploadPack:     true,
-		UploadArchive:  true,
+		UploadArchive:  false,
 		ReceivePack:    false,
 	}
 )
