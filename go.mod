@@ -1,12 +1,12 @@
-module github.com/aymanbagabas/go-gitdaemon
+module github.com/aymanbagabas/go-git-daemon
 
 go 1.20
 
 require (
-	github.com/charmbracelet/log v0.2.1
 	github.com/charmbracelet/soft-serve v0.5.0
 	github.com/git-lfs/pktline v0.0.0-20230103162542-ca444d533ef1
 	github.com/go-git/go-git/v5 v5.6.1
+	golang.org/x/sync v0.1.0
 )
 
 require (
@@ -14,6 +14,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/caarlos0/env/v7 v7.1.0 // indirect
 	github.com/charmbracelet/lipgloss v0.7.1 // indirect
+	github.com/charmbracelet/log v0.2.1 // indirect
 	github.com/charmbracelet/ssh v0.0.0-20221117183211-483d43d97103 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
@@ -33,7 +34,6 @@ require (
 	github.com/sergi/go-diff v1.1.0 // indirect
 	golang.org/x/crypto v0.8.0 // indirect
 	golang.org/x/mod v0.8.0 // indirect
-	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/tools v0.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
