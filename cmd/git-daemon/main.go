@@ -46,11 +46,11 @@ func main() {
 		service := daemon.Service(strings.ToLower(v))
 		switch service {
 		case daemon.UploadPack:
-			daemon.DefaultConfig.UploadPack = true
+			daemon.DefaultConfig.UploadPackHandler = daemon.DefaultUploadPackHandler
 		case daemon.UploadArchive:
-			daemon.DefaultConfig.UploadArchive = true
+			daemon.DefaultConfig.UploadArchiveHandler = daemon.DefaultUploadArchiveHandler
 		case daemon.ReceivePack:
-			daemon.DefaultConfig.ReceivePack = true
+			daemon.DefaultConfig.ReceivePackHandler = daemon.DefaultReceivePackHandler
 		}
 	}
 
@@ -58,11 +58,11 @@ func main() {
 		service := daemon.Service(strings.ToLower(v))
 		switch service {
 		case daemon.UploadPack:
-			daemon.DefaultConfig.UploadPack = false
+			daemon.DefaultConfig.UploadPackHandler = nil
 		case daemon.UploadArchive:
-			daemon.DefaultConfig.UploadArchive = false
+			daemon.DefaultConfig.UploadArchiveHandler = nil
 		case daemon.ReceivePack:
-			daemon.DefaultConfig.ReceivePack = false
+			daemon.DefaultConfig.ReceivePackHandler = nil
 		}
 	}
 
@@ -99,7 +99,10 @@ func main() {
 				if stderr.Len() > 0 {
 					log.Printf("access hook stderr: %s", stderr.String())
 				}
-				return daemon.ErrAccessDenied
+				if eerr, ok := err.(*exec.ExitError); ok && eerr.ExitCode() != 0 {
+					return daemon.ErrAccessDenied
+				}
+				return daemon.ErrSystemMalfunction
 			}
 
 			return nil

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/git-lfs/pktline"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -40,6 +38,8 @@ var (
 )
 
 var (
+	// defaultAccessHook is the default access hook. It is called to authorize
+	// access to a repository. This is a no-op by default.
 	defaultAccessHook  = func(Service, string, string, string, string, string, string) error { return nil }
 	defaultCommandFunc = func(*exec.Cmd) {}
 )
@@ -54,10 +54,6 @@ func (s *Config) init() {
 		s.Logger = os.Stderr
 	}
 
-	if s.GitBinPath == "" {
-		s.GitBinPath = "git"
-	}
-
 	if s.done == nil {
 		s.done = make(chan struct{})
 	}
@@ -70,10 +66,6 @@ func (s *Config) init() {
 
 	if s.AccessHook == nil {
 		s.AccessHook = defaultAccessHook
-	}
-
-	if s.CommandFunc == nil {
-		s.CommandFunc = defaultCommandFunc
 	}
 
 	if s.InitTimeout < 0 {
@@ -220,19 +212,19 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		service := Service(bytes.TrimPrefix(split[0], []byte("git-")))
 		switch service {
 		case UploadPack:
-			if !s.UploadPack {
+			if s.UploadPackHandler == nil {
 				s.debugf("upload-pack service not enabled for %s", c.RemoteAddr())
 				s.fatal(c, ErrAccessDenied) // nolint: errcheck
 				return
 			}
 		case UploadArchive:
-			if !s.UploadArchive {
+			if s.UploadArchiveHandler == nil {
 				s.debugf("upload-archive service not enabled for %s", c.RemoteAddr())
 				s.fatal(c, ErrAccessDenied) // nolint: errcheck
 				return
 			}
 		case ReceivePack:
-			if !s.ReceivePack {
+			if s.ReceivePackHandler == nil {
 				s.debugf("receive-pack service not enabled for %s", c.RemoteAddr())
 				s.fatal(c, ErrAccessDenied) // nolint: errcheck
 				return
@@ -323,64 +315,25 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			}
 		}
 
-		cmd := exec.Command(s.GitBinPath, service.String(), path) // nolint: gosec
-		cmd.Dir = s.BasePath
-		if s.CommandFunc != nil {
-			s.CommandFunc(cmd)
+		var handler RequestHandler
+		switch service {
+		case UploadPack:
+			handler = s.UploadPackHandler
+		case UploadArchive:
+			handler = s.UploadArchiveHandler
+		case ReceivePack:
+			handler = s.ReceivePackHandler
 		}
 
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			s.logf("failed to create stdin pipe: %v", err)
-			s.fatal(c, ErrAccessDenied) // nolint: errcheck
+		if handler == nil {
+			s.debugf("no handler for service %q", service)
+			s.fatal(c, ErrSystemMalfunction) // nolint: errcheck
 			return
 		}
 
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			s.logf("failed to create stdout pipe: %v", err)
-			s.fatal(c, ErrAccessDenied) // nolint: errcheck
-			return
-		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			s.logf("failed to create stderr pipe: %v", err)
-			s.fatal(c, ErrAccessDenied) // nolint: errcheck
-			return
-		}
-
-		if err := cmd.Start(); err != nil {
-			s.logf("failed to start git command: %v", err)
-			s.fatal(c, ErrAccessDenied) // nolint: errcheck
-			return
-		}
-
-		var errg errgroup.Group
-
-		// stdin
-		errg.Go(func() error {
-			defer stdin.Close() // nolint: errcheck
-
-			_, err := io.Copy(stdin, c)
-			return err
-		})
-
-		// stdout
-		errg.Go(func() error {
-			_, err := io.Copy(c, stdout)
-			return err
-		})
-
-		// stderr
-		errg.Go(func() error {
-			_, err := io.Copy(c, stderr)
-			return err
-		})
-
-		if err := errg.Wait(); err != nil {
-			s.logf("while running git command: %v", err)
-			s.fatal(c, ErrAccessDenied) // nolint: errcheck
+		if err := handler(s.BasePath, path, c); err != nil {
+			s.logf("handler error: %v", err)
+			s.fatal(c, ErrSystemMalfunction) // nolint: errcheck
 			return
 		}
 	}
