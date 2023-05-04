@@ -152,9 +152,14 @@ func (s *Config) Serve(l net.Listener) error {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
+			initTimeout := time.Duration(s.InitTimeout) * time.Second
+			if initTimeout == 0 && s.Timeout > 0 {
+				initTimeout = time.Duration(s.Timeout) * time.Second
+			}
+
 			sconn := &serverConn{
 				Conn:          conn,
-				initTimeout:   time.Duration(s.InitTimeout) * time.Second,
+				initTimeout:   initTimeout,
 				idleTimeout:   time.Duration(s.IdleTimeout) * time.Second,
 				closeCanceler: cancel,
 			}
@@ -370,7 +375,11 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			if cmd != nil {
 				cmdFunc(cmd)
 				if service == UploadPack {
+					// Don't try /.git if directory is not git, we handle that
+					// here in the server using `StrictPaths`.
 					cmd.Args = append(cmd.Args, "--strict")
+
+					// Add upload-pack timeout
 					if s.Timeout > 0 {
 						timeout := strconv.Itoa(s.Timeout)
 						cmd.Args = append(cmd.Args, "--timeout="+timeout)
