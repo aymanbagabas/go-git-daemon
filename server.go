@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/git-lfs/pktline"
@@ -37,7 +40,7 @@ var (
 )
 
 var (
-	defaultAccessHook  = func(Service, string, string) error { return nil }
+	defaultAccessHook  = func(Service, string, string, string, string, string, string) error { return nil }
 	defaultCommandFunc = func(*exec.Cmd) {}
 )
 
@@ -104,6 +107,13 @@ func (s *Config) Serve(l net.Listener) error {
 	s.init()
 	s.listener = l
 
+	// Clean base path.
+	s.BasePath = filepath.Clean(s.BasePath)
+
+	s.debugf("listening on %s", s.Addr)
+
+	s.debugf("serving repositories from %q", s.BasePath)
+
 	var tempDelay time.Duration // how long to sleep on accept failure
 
 	for {
@@ -137,7 +147,7 @@ func (s *Config) Serve(l net.Listener) error {
 			if s.MaxConnections > 0 && s.connections.Size() >= s.MaxConnections {
 				msg := "too many connections"
 				s.debugf("%s, rejecting %s", msg, conn.RemoteAddr())
-				if err := s.writeMsg(conn, msg); err != nil {
+				if err := s.packetWriteMsg(conn, msg); err != nil {
 					s.logf("failed to write message: %v", err)
 				}
 				conn.Close() // nolint: errcheck
@@ -232,23 +242,72 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
-		opts := bytes.Split(split[1], []byte{0})
+		opts := bytes.Split(split[1], []byte{'\x00'})
 		if len(opts) == 0 {
 			s.fatal(c, ErrInvalidRequest) // nolint: errcheck
 			return
 		}
 
-		addr := c.RemoteAddr().String()
-		path := string(opts[0])
+		var host string
+		var version int
+
+		for _, o := range opts {
+			opt := string(o)
+			if opt == "" {
+				continue
+			}
+
+			if s.Verbose {
+				s.debugf("received option %q", opt)
+			}
+
+			switch {
+			case strings.HasPrefix(opt, "host="):
+				host = strings.TrimPrefix(opt, "host=")
+			case strings.HasPrefix(opt, "version="):
+				version, _ = strconv.Atoi(strings.TrimPrefix(opt, "version="))
+			}
+		}
+
+		if s.Verbose {
+			s.debugf("protocol version %d", version)
+		}
+
+		var (
+			hostname      string
+			canonHostname string
+			ipAddr        string
+			port          string
+		)
+
+		if host != "" {
+			url, err := url.Parse(host)
+			if err == nil {
+				// FIXME: this is not correct, we should use the canonical hostname
+				hostname = url.Hostname()
+				canonHostname = url.Hostname()
+			}
+		}
+
+		tcpAddr, err := net.ResolveTCPAddr("tcp", host)
+		if err == nil {
+			ipAddr = tcpAddr.IP.String()
+			port = strconv.Itoa(tcpAddr.Port)
+		}
+
+		remoteAddr := c.RemoteAddr().String()
+		actualPath := string(opts[0])
+		actualPath = filepath.Join(s.BasePath, actualPath)
+		actualPath = filepath.Clean(actualPath)
 
 		// validate path
-		path = s.validatePath(path)
+		path := s.validatePath(actualPath)
 
-		s.debugf("connect %s %s %s", addr, service, path)
-		defer s.debugf("disconnect %s %s %s", addr, service, path)
+		s.debugf("connect %s %s %s", remoteAddr, service, actualPath)
+		defer s.debugf("disconnect %s %s %s", remoteAddr, service, actualPath)
 
 		if path == "" {
-			s.fatal(c, ErrNotFound) // nolint: errcheck
+			s.fatal(c, fmt.Errorf("%w: %s", ErrNotFound, actualPath)) // nolint: errcheck
 			return
 		}
 
@@ -257,13 +316,18 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
-		if err := s.AccessHook(service, path, addr); err != nil {
-			s.fatal(c, err) // nolint: errcheck
-			return
+		if s.AccessHook != nil {
+			if err := s.AccessHook(service, path, hostname, canonHostname, ipAddr, port, remoteAddr); err != nil {
+				s.fatal(c, err) // nolint: errcheck
+				return
+			}
 		}
 
 		cmd := exec.Command(s.GitBinPath, service.String(), path) // nolint: gosec
-		s.CommandFunc(cmd)
+		cmd.Dir = s.BasePath
+		if s.CommandFunc != nil {
+			s.CommandFunc(cmd)
+		}
 
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
@@ -282,6 +346,12 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		stderr, err := cmd.StderrPipe()
 		if err != nil {
 			s.logf("failed to create stderr pipe: %v", err)
+			s.fatal(c, ErrAccessDenied) // nolint: errcheck
+			return
+		}
+
+		if err := cmd.Start(); err != nil {
+			s.logf("failed to start git command: %v", err)
 			s.fatal(c, ErrAccessDenied) // nolint: errcheck
 			return
 		}
@@ -319,27 +389,38 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 // validatePath checks if the path is valid and if it's a git repository.
 // It returns the valid path or empty string if the path is invalid.
 func (s *Config) validatePath(path string) string {
-	suffix := []string{
-		"",
-		".git",
-		"/.git",
-		".git/.git",
-	}
-
-	for _, suf := range suffix {
-		_path := filepath.Clean(filepath.Join(path, suf))
-		_, err := os.Stat(_path)
+	check := func(path string) bool {
+		_, err := os.Stat(path)
 		if err != nil {
+			s.debugf("path %q does not exist", path)
 			if !os.IsNotExist(err) {
 				s.logf("failed to stat path: %v", err)
 			}
 			if s.StrictPaths {
-				return ""
+				s.debugf("strict paths enabled, returning empty path")
+				return false
 			}
 		} else {
-			if isGitDir(_path) {
-				return _path
+			s.debugf("path %q exists", path)
+			if isGitDir(path) {
+				s.debugf("path %q is a git repository", path)
+				return true
 			}
+		}
+
+		return false
+	}
+
+	for _, suf := range []string{
+		"",
+		".git",
+		"/.git",
+		".git/.git",
+	} {
+		suf = strings.ReplaceAll(suf, "/", string(os.PathSeparator))
+		_path := path + suf
+		if check(_path) {
+			return _path
 		}
 	}
 
@@ -380,7 +461,7 @@ func (s *Config) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (s *Config) writeMsg(c net.Conn, msg string) error {
+func (s *Config) packetWriteMsg(c net.Conn, msg string) error {
 	pkt := pktline.NewPktline(c, c)
 	if err := pkt.WritePacketText(msg); err != nil {
 		return fmt.Errorf("git-daemon: failed to write message: %w", err)
@@ -389,8 +470,12 @@ func (s *Config) writeMsg(c net.Conn, msg string) error {
 	return pkt.WriteFlush()
 }
 
+func (s *Config) packetWriteErr(c net.Conn, err error) error {
+	return s.packetWriteMsg(c, fmt.Sprintf("ERR %s", err)) // nolint: errcheck
+}
+
 func (s *Config) fatal(c net.Conn, err error) error {
-	s.writeMsg(c, err.Error()) // nolint: errcheck
+	s.packetWriteErr(c, err) // nolint: errcheck
 
 	return s.connections.Close(c)
 }
