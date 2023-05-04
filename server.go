@@ -255,7 +255,11 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			case strings.HasPrefix(opt, "host="):
 				host = strings.TrimPrefix(opt, "host=")
 			case strings.HasPrefix(opt, "version="):
-				version, _ = strconv.Atoi(strings.TrimPrefix(opt, "version="))
+				v, err := strconv.Atoi(strings.TrimPrefix(opt, "version="))
+				if err != nil {
+					s.logf("invalid version %q: %v", opt, err)
+				}
+				version = v
 			}
 		}
 
@@ -366,7 +370,7 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 				s.logf("error splitting remote address: %v", err)
 			}
 
-			if version > 0 {
+			if version >= 0 {
 				cmd.Env = append(cmd.Env, "GIT_PROTOCOL="+strconv.Itoa(version))
 			}
 		}
