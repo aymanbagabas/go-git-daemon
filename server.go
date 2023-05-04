@@ -45,11 +45,7 @@ var (
 )
 
 // init sets the default values for the server configuration.
-func (s *Config) init() {
-	if s.Addr == "" {
-		s.Addr = DefaultAddr
-	}
-
+func (s *Server) init() {
 	if s.Logger == nil {
 		s.Logger = log.Default()
 	}
@@ -79,9 +75,13 @@ func (s *Config) init() {
 
 // ListenAndServe listens on the TCP network address s.Addr and then calls
 // Serve to handle requests on incoming connections.
-func (s *Config) ListenAndServe() error {
+func (s *Server) ListenAndServe(addr string) error {
 	s.init()
-	l, err := net.Listen("tcp", s.Addr)
+	if addr == "" {
+		addr = DefaultAddr
+	}
+
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (s *Config) ListenAndServe() error {
 
 // Serve serves the Git daemon server on the given listener l. Each incoming
 // connection is handled in a separate goroutine.
-func (s *Config) Serve(l net.Listener) error {
+func (s *Server) Serve(l net.Listener) error {
 	if l == nil {
 		return fmt.Errorf("git-daemon: listener is nilt: %w", ErrSystemMalfunction)
 	}
@@ -102,7 +102,7 @@ func (s *Config) Serve(l net.Listener) error {
 	// Clean base path.
 	s.BasePath = filepath.Clean(s.BasePath)
 
-	s.debugf("listening on %s", s.Addr)
+	s.debugf("listening on %s", l.Addr())
 
 	s.debugf("serving repositories from %q", s.BasePath)
 
@@ -173,7 +173,7 @@ func (s *Config) Serve(l net.Listener) error {
 	}
 }
 
-func (s *Config) handleConn(ctx context.Context, c net.Conn) {
+func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 	defer s.wg.Done()
 	defer s.connections.Close(c) // nolint: errcheck
 
@@ -214,7 +214,7 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
-		var handler RequestHandler
+		var handler ServiceHandler
 		service := Service(bytes.TrimPrefix(split[0], []byte("git-")))
 
 		switch service {
@@ -400,7 +400,7 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 
 // validatePath checks if the path is valid and if it's a git repository.
 // It returns the valid path or empty string if the path is invalid.
-func (s *Config) validatePath(path string) string {
+func (s *Server) validatePath(path string) string {
 	for _, suf := range []string{
 		// This must be the first entry!
 		"",
@@ -433,7 +433,7 @@ func (s *Config) validatePath(path string) string {
 }
 
 // Close force closes the Git daemon server.
-func (s *Config) Close() error {
+func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -447,7 +447,7 @@ func (s *Config) Close() error {
 
 // Shutdown gracefully shuts down the Git daemon server without interrupting
 // any active connections.
-func (s *Config) Shutdown(ctx context.Context) error {
+func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	err := s.listener.Close()
 	s.mu.Unlock()
@@ -466,7 +466,7 @@ func (s *Config) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (s *Config) packetWriteMsg(c net.Conn, msg string) error {
+func (s *Server) packetWriteMsg(c net.Conn, msg string) error {
 	pkt := pktline.NewPktline(c, c)
 	if err := pkt.WritePacketText(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
@@ -475,23 +475,23 @@ func (s *Config) packetWriteMsg(c net.Conn, msg string) error {
 	return pkt.WriteFlush()
 }
 
-func (s *Config) packetWriteErr(c net.Conn, err error) error {
+func (s *Server) packetWriteErr(c net.Conn, err error) error {
 	return s.packetWriteMsg(c, fmt.Sprintf("ERR %s", err)) // nolint: errcheck
 }
 
-func (s *Config) fatal(c net.Conn, err error) error {
+func (s *Server) fatal(c net.Conn, err error) error {
 	s.packetWriteErr(c, err) // nolint: errcheck
 
 	return s.connections.Close(c)
 }
 
-func (s *Config) logf(format string, args ...interface{}) {
+func (s *Server) logf(format string, args ...interface{}) {
 	if s.Logger != nil {
 		s.Logger.Output(2, fmt.Sprintf(format, args...))
 	}
 }
 
-func (s *Config) debugf(format string, args ...interface{}) {
+func (s *Server) debugf(format string, args ...interface{}) {
 	if s.Verbose {
 		if s.Logger != nil {
 			s.Logger.Output(2, fmt.Sprintf(format, args...))

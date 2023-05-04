@@ -27,22 +27,20 @@ func (s Service) String() string {
 	return string(s)
 }
 
-// RequestHandler is a Git daemon request handler. It takes a service name, a
-// repository path, and a client connection as
+// ServiceHandler is a Git transport daemon service handler. It a repository
+// path, a client connection as arguments, and an optional command function as
 // arguments.
-type RequestHandler func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error
+//
+// The command function can be used to modify the Git command before it is run
+// (for example to add environment variables).
+type ServiceHandler func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error
 
 // AccessHook is a git-daemon access hook. It takes a service name, repository
 // path, and a client address as arguments.
 type AccessHook func(service Service, path string, host string, canoHost string, ipAdd string, port string, remoteAddr string) error
 
-// Config represents the Git daemon configuration.
-type Config struct {
-	// Addr is the address the Git daemon listens on.
-	//
-	// Default is ":9418".
-	Addr string
-
+// Server represents the Git daemon configuration.
+type Server struct {
 	// StrictPaths match paths exactly (i.e. don’t allow "/foo/repo" when the
 	// real path is "/foo/repo.git" or "/foo/repo/.git").
 	//
@@ -104,15 +102,15 @@ type Config struct {
 
 	// UploadPackHandler is the upload-pack service handler.
 	// If nil, the upload-pack service is disabled.
-	UploadPackHandler RequestHandler
+	UploadPackHandler ServiceHandler
 
 	// UploadArchiveHandler is the upload-archive service handler.
 	// If nil, the upload-archive service is disabled.
-	UploadArchiveHandler RequestHandler
+	UploadArchiveHandler ServiceHandler
 
 	// ReceivePackHandler is the receive-pack service handler.
 	// If nil, the receive-pack service is disabled.
-	ReceivePackHandler RequestHandler
+	ReceivePackHandler ServiceHandler
 
 	// AccessHook is the access hook.
 	// This is called before the service is started every time a client tries
@@ -136,9 +134,8 @@ var (
 	// DefaultAddr is the default Git daemon address.
 	DefaultAddr = ":9418"
 
-	// DefaultConfig is the default Git daemon configuration.
-	DefaultConfig = Config{
-		Addr:                 DefaultAddr,
+	// DefaultServer is the default Git daemon configuration.
+	DefaultServer = Server{
 		MaxConnections:       32,
 		UploadPackHandler:    DefaultUploadPackHandler,
 		UploadArchiveHandler: nil,
@@ -146,10 +143,28 @@ var (
 		Logger:               log.Default(),
 	}
 
-	// DefaultRequestHandler is the default Git daemon request handler.
+	// DefaultServiceHandler is the default Git transport service handler.
 	// It uses the git binary to run the requested service.
-	// Use cmdFunc to modify the command before it is run (e.g. to add environment variables).
-	DefaultRequestHandler = func(service Service, gitBinPath string) RequestHandler {
+	//
+	// Use this to implement custom service handlers that encapsulates the Git
+	// binary. For example:
+	//
+	//  myHandler := func(service daemon.Service, gitBinPath string) daemon.ServiceHandler {
+	//      return func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error {
+	//          customFunc := func(cmd *exec.Cmd) {
+	//          cmd.Env = append(cmd.Env, "CUSTOM_ENV_VAR=foo")
+	//          if cmdFunc != nil {
+	//            cmdFunc(cmd)
+	//          }
+	//
+	//          return daemon.DefaultServiceHandler(service, gitBinPath)(path, conn, customFunc)
+	//      }
+	//  }
+	//
+	//  daemon.HandleUploadPack(myHandler(daemon.UploadPack, "/path/to/my/git"))
+	//  daemon.DefaultServer.ReceivePackHandler = myHandler(daemon.ReceivePack, "/path/to/my/git")
+	//
+	DefaultServiceHandler = func(service Service, gitBinPath string) ServiceHandler {
 		return func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error {
 			cmd := exec.Command(gitBinPath, service.String(), ".") // nolint: gosec
 			cmd.Dir = path
@@ -211,11 +226,26 @@ var (
 	}
 
 	// DefaultUploadPackHandler is the default upload-pack service handler.
-	DefaultUploadPackHandler = DefaultRequestHandler(UploadPack, GitBinPath)
+	DefaultUploadPackHandler = DefaultServiceHandler(UploadPack, GitBinPath)
 
 	// DefaultUploadArchiveHandler is the default upload-archive service handler.
-	DefaultUploadArchiveHandler = DefaultRequestHandler(UploadArchive, GitBinPath)
+	DefaultUploadArchiveHandler = DefaultServiceHandler(UploadArchive, GitBinPath)
 
 	// DefaultReceivePackHandler is the default receive-pack service handler.
-	DefaultReceivePackHandler = DefaultRequestHandler(ReceivePack, GitBinPath)
+	DefaultReceivePackHandler = DefaultServiceHandler(ReceivePack, GitBinPath)
 )
+
+// HandleUploadPack sets the upload-pack service handler.
+func (s *Server) HandleUploadPack(handler ServiceHandler) {
+	s.UploadPackHandler = handler
+}
+
+// HandleUploadArchive sets the upload-archive service handler.
+func (s *Server) HandleUploadArchive(handler ServiceHandler) {
+	s.UploadArchiveHandler = handler
+}
+
+// HandleReceivePack sets the receive-pack service handler.
+func (s *Server) HandleReceivePack(handler ServiceHandler) {
+	s.ReceivePackHandler = handler
+}
