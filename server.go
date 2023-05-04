@@ -342,29 +342,8 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 // validatePath checks if the path is valid and if it's a git repository.
 // It returns the valid path or empty string if the path is invalid.
 func (s *Config) validatePath(path string) string {
-	check := func(path string) bool {
-		_, err := os.Stat(path)
-		if err != nil {
-			s.debugf("path %q does not exist", path)
-			if !os.IsNotExist(err) {
-				s.logf("failed to stat path: %v", err)
-			}
-			if s.StrictPaths {
-				s.debugf("strict paths enabled, returning empty path")
-				return false
-			}
-		} else {
-			s.debugf("path %q exists", path)
-			if isGitDir(path) {
-				s.debugf("path %q is a git repository", path)
-				return true
-			}
-		}
-
-		return false
-	}
-
 	for _, suf := range []string{
+		// This must be the first entry!
 		"",
 		".git",
 		"/.git",
@@ -372,8 +351,22 @@ func (s *Config) validatePath(path string) string {
 	} {
 		suf = strings.ReplaceAll(suf, "/", string(os.PathSeparator))
 		_path := path + suf
-		if check(_path) {
-			return _path
+		_, err := os.Stat(_path)
+		if err != nil {
+			s.debugf("path %q does not exist", _path)
+			if !os.IsNotExist(err) {
+				s.logf("failed to stat path: %v", err)
+			}
+			if s.StrictPaths {
+				s.debugf("strict paths enabled, returning empty path")
+				return ""
+			}
+		} else {
+			s.debugf("path %q exists", _path)
+			if isGitDir(_path) {
+				s.debugf("path %q is a git repository", _path)
+				return _path
+			}
 		}
 	}
 
