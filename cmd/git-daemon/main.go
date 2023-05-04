@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -69,14 +68,14 @@ func main() {
 	logDest = strings.ToLower(logDest)
 	switch logDest {
 	case "stdout":
-		daemon.DefaultConfig.Logger = os.Stdout
+		daemon.DefaultConfig.Logger = log.New(os.Stdout, "", log.LstdFlags)
 	case "none":
-		daemon.DefaultConfig.Logger = io.Discard
+		daemon.DefaultConfig.Logger = nil
 	default:
 		if logDest != "stderr" {
 			log.Printf("log destination %q not supported, using stderr", logDest)
 		}
-		daemon.DefaultConfig.Logger = os.Stderr
+		daemon.DefaultConfig.Logger = log.Default()
 	}
 
 	if accessHook != "" {

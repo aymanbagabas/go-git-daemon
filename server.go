@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -51,7 +52,7 @@ func (s *Config) init() {
 	}
 
 	if s.Logger == nil {
-		s.Logger = os.Stderr
+		s.Logger = log.Default()
 	}
 
 	if s.done == nil {
@@ -410,7 +411,7 @@ func (s *Config) Shutdown(ctx context.Context) error {
 func (s *Config) packetWriteMsg(c net.Conn, msg string) error {
 	pkt := pktline.NewPktline(c, c)
 	if err := pkt.WritePacketText(msg); err != nil {
-		return fmt.Errorf("git-daemon: failed to write message: %w", err)
+		return fmt.Errorf("failed to write message: %w", err)
 	}
 
 	return pkt.WriteFlush()
@@ -427,12 +428,15 @@ func (s *Config) fatal(c net.Conn, err error) error {
 }
 
 func (s *Config) logf(format string, args ...interface{}) {
-	format = "git-daemon: " + format + "\n"
-	fmt.Fprintf(s.Logger, format, args...)
+	if s.Logger != nil {
+		s.Logger.Output(2, fmt.Sprintf(format, args...))
+	}
 }
 
 func (s *Config) debugf(format string, args ...interface{}) {
 	if s.Verbose {
-		s.logf(format, args...)
+		if s.Logger != nil {
+			s.Logger.Output(2, fmt.Sprintf(format, args...))
+		}
 	}
 }

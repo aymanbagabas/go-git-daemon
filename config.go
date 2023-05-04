@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"io"
+	"log"
 	"net"
 	"os/exec"
 	"sync"
@@ -82,10 +83,10 @@ type Config struct {
 	MaxConnections int
 
 	// Logger is where to write logs.
-	// Use io.Discard to disable logging.
+	// Use nil to disable logging.
 	//
-	// Default is os.Stderr.
-	Logger io.Writer
+	// Default is log.Defualt.
+	Logger *log.Logger
 
 	// Verbose is whether or not to enable verbose logging.
 	Verbose bool
@@ -132,6 +133,7 @@ var (
 		UploadPackHandler:    DefaultUploadPackHandler,
 		UploadArchiveHandler: nil,
 		ReceivePackHandler:   nil,
+		Logger:               log.Default(),
 	}
 
 	// DefaultRequestHandler is the default Git daemon request handler.
