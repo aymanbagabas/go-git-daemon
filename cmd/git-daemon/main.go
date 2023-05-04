@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -90,8 +91,13 @@ func main() {
 
 		daemon.DefaultConfig.AccessHook = func(service daemon.Service, path, host, canon, ipAddr, port, remoteAddr string) error {
 			var stderr bytes.Buffer
-			cmd := exec.Command(accessHook, service.String(), path, host, canon, ipAddr, port, remoteAddr)
+			cmd := exec.Command(accessHook, service.String(), path, host, canon, ipAddr, port)
 			cmd.Stderr = &stderr
+			cmd.Env = os.Environ()
+			if remoteHost, remotePort, err := net.SplitHostPort(remoteAddr); err == nil {
+				cmd.Env = append(cmd.Env, "REMOTE_ADDR="+remoteHost)
+				cmd.Env = append(cmd.Env, "REMOTE_PORT="+remotePort)
+			}
 
 			if err := cmd.Run(); err != nil {
 				log.Printf("access hook %q failed: %v", accessHook, err)

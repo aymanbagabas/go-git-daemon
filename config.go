@@ -28,8 +28,9 @@ func (s Service) String() string {
 }
 
 // RequestHandler is a Git daemon request handler. It takes a service name, a
-// repository path, and a client connection as arguments.
-type RequestHandler func(basePath string, repo string, conn net.Conn) error
+// repository path, and a client connection as
+// arguments.
+type RequestHandler func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error
 
 // AccessHook is a git-daemon access hook. It takes a service name, repository
 // path, and a client address as arguments.
@@ -77,6 +78,11 @@ type Config struct {
 	// Zero means no timeout.
 	MaxTimeout int
 
+	// Timeout is the timeout (in seconds) for specific client sub-requests.
+	// This includes the time it takes for the server to process the
+	// sub-request and the time spent waiting for the next client’s request.
+	Timeout int
+
 	// MaxConnections is the maximum number of simultaneous connections.
 	//
 	// Zero means no limit.
@@ -106,8 +112,7 @@ type Config struct {
 	// AccessHook is the access hook.
 	// This is called before the service is started every time a client tries
 	// to access a repository.
-	// If the hook returns an error, the client is denied access and the error
-	// is sent to the client.
+	// If the hook returns an error, the client is denied access.
 	//
 	// Default is a no-op.
 	AccessHook AccessHook
@@ -139,10 +144,10 @@ var (
 	// DefaultRequestHandler is the default Git daemon request handler.
 	// It uses the git binary to run the requested service.
 	// Use cmdFunc to modify the command before it is run (e.g. to add environment variables).
-	DefaultRequestHandler = func(service Service, gitBinPath string, cmdFunc func(*exec.Cmd)) RequestHandler {
-		return func(basePath, repo string, conn net.Conn) error {
-			cmd := exec.Command(gitBinPath, service.String(), repo) // nolint: gosec
-			cmd.Dir = basePath
+	DefaultRequestHandler = func(service Service, gitBinPath string) RequestHandler {
+		return func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error {
+			cmd := exec.Command(gitBinPath, service.String(), ".") // nolint: gosec
+			cmd.Dir = path
 			if cmdFunc != nil {
 				cmdFunc(cmd)
 			}
@@ -197,11 +202,11 @@ var (
 	}
 
 	// DefaultUploadPackHandler is the default upload-pack service handler.
-	DefaultUploadPackHandler = DefaultRequestHandler(UploadPack, GitBinPath, nil)
+	DefaultUploadPackHandler = DefaultRequestHandler(UploadPack, GitBinPath)
 
 	// DefaultUploadArchiveHandler is the default upload-archive service handler.
-	DefaultUploadArchiveHandler = DefaultRequestHandler(UploadArchive, GitBinPath, nil)
+	DefaultUploadArchiveHandler = DefaultRequestHandler(UploadArchive, GitBinPath)
 
 	// DefaultReceivePackHandler is the default receive-pack service handler.
-	DefaultReceivePackHandler = DefaultRequestHandler(ReceivePack, GitBinPath, nil)
+	DefaultReceivePackHandler = DefaultRequestHandler(ReceivePack, GitBinPath)
 )

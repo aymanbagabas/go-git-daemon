@@ -210,28 +210,21 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
+		var handler RequestHandler
 		service := Service(bytes.TrimPrefix(split[0], []byte("git-")))
+
 		switch service {
 		case UploadPack:
-			if s.UploadPackHandler == nil {
-				s.debugf("upload-pack service not enabled for %s", c.RemoteAddr())
-				s.fatal(c, ErrAccessDenied) // nolint: errcheck
-				return
-			}
+			handler = s.UploadPackHandler
 		case UploadArchive:
-			if s.UploadArchiveHandler == nil {
-				s.debugf("upload-archive service not enabled for %s", c.RemoteAddr())
-				s.fatal(c, ErrAccessDenied) // nolint: errcheck
-				return
-			}
+			handler = s.UploadArchiveHandler
 		case ReceivePack:
-			if s.ReceivePackHandler == nil {
-				s.debugf("receive-pack service not enabled for %s", c.RemoteAddr())
-				s.fatal(c, ErrAccessDenied) // nolint: errcheck
-				return
-			}
-		default:
-			s.fatal(c, ErrInvalidRequest) // nolint: errcheck
+			handler = s.ReceivePackHandler
+		}
+
+		if handler == nil {
+			s.debugf("%s service not enabled for %s", service, c.RemoteAddr())
+			s.fatal(c, ErrAccessDenied) // nolint: errcheck
 			return
 		}
 
@@ -274,11 +267,14 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		)
 
 		if host != "" {
-			url, err := url.Parse(host)
-			if err == nil {
-				// FIXME: this is not correct, we should use the canonical hostname
+			if url, err := url.Parse(host); err == nil {
+				if url.Port() != "" {
+					port = url.Port()
+				}
+
 				hostname = url.Hostname()
-				canonHostname = url.Hostname()
+				// FIXME: get the canonical hostname
+				canonHostname = strings.ToLower(url.Hostname())
 			}
 		}
 
@@ -289,18 +285,20 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		}
 
 		remoteAddr := c.RemoteAddr().String()
+		basePath := filepath.Clean(s.BasePath)
 		actualPath := string(opts[0])
-		actualPath = filepath.Join(s.BasePath, actualPath)
+		actualPath = filepath.Join(basePath, actualPath)
 		actualPath = filepath.Clean(actualPath)
 
 		// validate path
 		path := s.validatePath(actualPath)
+		repo := strings.TrimPrefix(path, basePath)
 
-		s.debugf("connect %s %s %s", remoteAddr, service, actualPath)
-		defer s.debugf("disconnect %s %s %s", remoteAddr, service, actualPath)
+		s.debugf("connect %s %s %s", remoteAddr, service, repo)
+		defer s.debugf("disconnect %s %s %s", remoteAddr, service, repo)
 
 		if path == "" {
-			s.fatal(c, fmt.Errorf("%w: %s", ErrNotFound, actualPath)) // nolint: errcheck
+			s.fatal(c, fmt.Errorf("%w: %s", ErrNotFound, repo)) // nolint: errcheck
 			return
 		}
 
@@ -309,21 +307,14 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
+		// TODO: check if service is overridable.
+
 		if s.AccessHook != nil {
 			if err := s.AccessHook(service, path, hostname, canonHostname, ipAddr, port, remoteAddr); err != nil {
-				s.fatal(c, err) // nolint: errcheck
+				s.logf("access hook error: %v", err)
+				s.fatal(c, ErrAccessDenied) // nolint: errcheck
 				return
 			}
-		}
-
-		var handler RequestHandler
-		switch service {
-		case UploadPack:
-			handler = s.UploadPackHandler
-		case UploadArchive:
-			handler = s.UploadArchiveHandler
-		case ReceivePack:
-			handler = s.ReceivePackHandler
 		}
 
 		if handler == nil {
@@ -332,7 +323,33 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
-		if err := handler(s.BasePath, path, c); err != nil {
+		// Add environment variables
+		cmdFunc := func(cmd *exec.Cmd) {
+			cmd.Env = os.Environ()
+			remoteHost, remotePort, err := net.SplitHostPort(remoteAddr)
+			if err == nil {
+				cmd.Env = append(cmd.Env, "REMOTE_ADDR="+remoteHost)
+				cmd.Env = append(cmd.Env, "REMOTE_PORT="+remotePort)
+			} else {
+				s.logf("error splitting remote address: %v", err)
+			}
+			if version > 0 {
+				cmd.Env = append(cmd.Env, "GIT_PROTOCOL="+strconv.Itoa(version))
+			}
+		}
+
+		if err := handler(path, c, func(cmd *exec.Cmd) {
+			if cmd != nil {
+				cmdFunc(cmd)
+				if service == UploadPack {
+					cmd.Args = append(cmd.Args, "--strict")
+					if s.Timeout > 0 {
+						timeout := strconv.Itoa(s.Timeout)
+						cmd.Args = append(cmd.Args, "--timeout="+timeout)
+					}
+				}
+			}
+		}); err != nil {
 			s.logf("handler error: %v", err)
 			s.fatal(c, ErrSystemMalfunction) // nolint: errcheck
 			return
