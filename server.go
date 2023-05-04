@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -262,26 +261,49 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		var (
 			hostname      string
 			canonHostname string
-			ipAddr        string
+			ip            string
 			port          string
 		)
 
 		if host != "" {
-			if url, err := url.Parse(host); err == nil {
-				if url.Port() != "" {
-					port = url.Port()
-				}
-
-				hostname = url.Hostname()
-				// FIXME: get the canonical hostname
-				canonHostname = strings.ToLower(url.Hostname())
+			h, p, err := net.SplitHostPort(host)
+			if err == nil {
+				hostname = h
+				port = p
+			} else {
+				hostname = host
 			}
+			hostname = strings.ToLower(hostname)
 		}
 
-		tcpAddr, err := net.ResolveTCPAddr("tcp", host)
-		if err == nil {
-			ipAddr = tcpAddr.IP.String()
-			port = strconv.Itoa(tcpAddr.Port)
+		if hostname != "" {
+			// Lookup the canonical hostname.
+			canon, err := net.LookupCNAME(hostname)
+			if err == nil {
+				canonHostname = canon
+			} else {
+				canonHostname = hostname
+			}
+			canonHostname = strings.TrimSuffix(canonHostname, ".")
+
+			// Lookup the IP address.
+			ipAddrs, err := net.LookupIP(hostname)
+			if err == nil {
+				// Prefer IPv4 addresses.
+				for _, p := range ipAddrs {
+					if p.To4() != nil {
+						ip = p.String()
+						break
+					}
+				}
+				if ip == "" && len(ipAddrs) > 0 {
+					ipAddr := ipAddrs[0]
+					ip = ipAddrs[0].String()
+					if ipAddr.To16() != nil {
+						ip = "[" + ip + "]"
+					}
+				}
+			}
 		}
 
 		remoteAddr := c.RemoteAddr().String()
@@ -310,7 +332,7 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 		// TODO: check if service is overridable.
 
 		if s.AccessHook != nil {
-			if err := s.AccessHook(service, path, hostname, canonHostname, ipAddr, port, remoteAddr); err != nil {
+			if err := s.AccessHook(service, path, hostname, canonHostname, ip, port, remoteAddr); err != nil {
 				s.logf("access hook error: %v", err)
 				s.fatal(c, ErrAccessDenied) // nolint: errcheck
 				return
@@ -328,11 +350,17 @@ func (s *Config) handleConn(ctx context.Context, c net.Conn) {
 			cmd.Env = os.Environ()
 			remoteHost, remotePort, err := net.SplitHostPort(remoteAddr)
 			if err == nil {
-				cmd.Env = append(cmd.Env, "REMOTE_ADDR="+remoteHost)
+				remoteAddress := remoteHost
+				remoteIp := net.ParseIP(remoteAddress)
+				if remoteIp != nil && remoteIp.To16() != nil {
+					remoteAddress = "[" + remoteAddress + "]"
+				}
+				cmd.Env = append(cmd.Env, fmt.Sprintf("REMOTE_ADDR=%s", remoteAddress))
 				cmd.Env = append(cmd.Env, "REMOTE_PORT="+remotePort)
 			} else {
 				s.logf("error splitting remote address: %v", err)
 			}
+
 			if version > 0 {
 				cmd.Env = append(cmd.Env, "GIT_PROTOCOL="+strconv.Itoa(version))
 			}

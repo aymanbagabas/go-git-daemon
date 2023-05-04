@@ -197,6 +197,10 @@ var (
 				return err
 			}
 
+			if err := cmd.Wait(); err != nil {
+				return err
+			}
+
 			return nil
 		}
 	}

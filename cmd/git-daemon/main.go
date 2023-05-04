@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -90,24 +91,40 @@ func main() {
 		}
 
 		daemon.DefaultConfig.AccessHook = func(service daemon.Service, path, host, canon, ipAddr, port, remoteAddr string) error {
-			var stderr bytes.Buffer
+			var stdout bytes.Buffer
 			cmd := exec.Command(accessHook, service.String(), path, host, canon, ipAddr, port)
-			cmd.Stderr = &stderr
 			cmd.Env = os.Environ()
-			if remoteHost, remotePort, err := net.SplitHostPort(remoteAddr); err == nil {
-				cmd.Env = append(cmd.Env, "REMOTE_ADDR="+remoteHost)
+			cmd.Stderr = nil
+			cmd.Stdin = nil
+
+			out, err := cmd.StdoutPipe()
+			if err != nil {
+				return err
+			}
+
+			remoteHost, remotePort, err := net.SplitHostPort(remoteAddr)
+			if err == nil {
+				remoteAddress := remoteHost
+				remoteIp := net.ParseIP(remoteAddress)
+				if remoteIp != nil && remoteIp.To16() != nil {
+					remoteAddress = "[" + remoteAddress + "]"
+				}
+				cmd.Env = append(cmd.Env, fmt.Sprintf("REMOTE_ADDR=%s", remoteAddress))
 				cmd.Env = append(cmd.Env, "REMOTE_PORT="+remotePort)
 			}
 
-			if err := cmd.Run(); err != nil {
+			if err := cmd.Start(); err != nil {
+				return err
+			}
+
+			go func() {
+				defer out.Close()
+				stdout.ReadFrom(out)
+			}()
+
+			if err := cmd.Wait(); err != nil {
 				log.Printf("access hook %q failed: %v", accessHook, err)
-				if stderr.Len() > 0 {
-					log.Printf("access hook stderr: %s", stderr.String())
-				}
-				if eerr, ok := err.(*exec.ExitError); ok && eerr.ExitCode() != 0 {
-					return daemon.ErrAccessDenied
-				}
-				return daemon.ErrSystemMalfunction
+				return err
 			}
 
 			return nil
