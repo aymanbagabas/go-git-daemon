@@ -92,12 +92,12 @@ func accessHook(service Service, path string, host string, canoHost string, ipAd
 
     // deny any push access except to "public.git"
     if service == daemon.ReceivePackService && path != "/srv/git/public.git" {
-        return fmt.Errorf("access denied") // deny access
+        return fmt.Errorf("access denied")
     }
 
     // deny all push/fetch access to "private.git"
     if path == "/srv/git/private.git" {
-        return fmt.Errorf("access denied") // deny access
+        return fmt.Errorf("access denied")
     }
 
     return nil // allow access
@@ -109,17 +109,17 @@ func main() {
 
     // Create a new server instance
     server := daemon.Server{
-		MaxConnections:       0,                                  // unlimited concurrent connections
+        MaxConnections:       0,                                  // unlimited concurrent connections
         Timeout:              3,                                  // 3 seconds timeout
         BasePath:             "/srv/git",                         // base path for all repositories
         ExportAll:            true,                               // export all repositories
-		UploadPackHandler:    daemon.DefaultUploadPackHandler,    // enable upload-pack
-		UploadArchiveHandler: daemon.DefaultUploadArchiveHandler, // enable upload-archive
-		ReceivePackHandler:   daemon.DefaultReceivePackHandler,   // enable receive-pack 💃
-        AccessHook:           accessHook,                         //
-		Logger:               logger,                             // use logger
+        UploadPackHandler:    daemon.DefaultUploadPackHandler,    // enable upload-pack
+        UploadArchiveHandler: daemon.DefaultUploadArchiveHandler, // enable upload-archive
+        ReceivePackHandler:   daemon.DefaultReceivePackHandler,   // enable receive-pack 💃
+        AccessHook:           accessHook,                         // use a custom access hook
+        Logger:               logger,                             // use logger
         //Verbose:              true,                             // enable verbose logging
-	}
+    }
 
     // Start server on the default port (9418)
     if err := server.ListenAndServe("0.0.0.0:9418"); err != nil {
