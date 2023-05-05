@@ -1,6 +1,8 @@
 # Git Daemon
 
-This is a Go implementation of the [Git Transport](https://git-scm.com/docs/pack-protocol#_git_transport) protocol and `git-daemon` binary. It is meant to be used as a Go library to replace `git-daemon` but you can also use [`cmd/git-daemon`](./cmd/git-daemon) as a binary to host repositories.
+This is a Go implementation of the [Git Transport][git-transport] protocol and `git-daemon` binary. It is meant to be used as a Go library to replace [`git-daemon`](https://git-scm.com/docs/git-daemon), but can also be used as a binary to serve repositories using git transport.
+
+[git-transport]: https://git-scm.com/docs/pack-protocol#_git_transport
 
 ## Dependencies
 
@@ -52,4 +54,80 @@ Usage of git-daemon:
 
 ## Examples
 
-To use this as a library, simply
+To use this as a server
+
+```go
+package main
+
+import (
+    "log"
+
+    daemon "github.com/aymanbagabas/go-git-daemon"
+)
+
+func main() {
+    // Enable upload-archive using the default handler (requires `git` in $PATH)
+    daemon.HandleUploadArchive(daemon.DefaultUploadArchiveHandler)
+
+    // Start server
+    if err := daemon.ListenAndServe(daemon.DefaultAddr); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+Or create a new server instance with custom options and access hook
+
+```go
+package main
+
+import (
+    "log"
+
+    daemon "github.com/aymanbagabas/go-git-daemon"
+)
+
+func accessHook(service Service, path string, host string, canoHost string, ipAdd string, port string, remoteAddr string) error {
+    log.Printf("[%s] Requesting access to %s from %s (%s)", service, path, remoteAddr, host)
+
+    // deny any push access except to "public.git"
+    if service == daemon.ReceivePackService && path != "/srv/git/public.git" {
+        return fmt.Errorf("access denied") // deny access
+    }
+
+    // deny all push/fetch access to "private.git"
+    if path == "/srv/git/private.git" {
+        return fmt.Errorf("access denied") // deny access
+    }
+
+    return nil // allow access
+}
+
+func main() {
+    logger := log.Default()
+    logger.SetPrefix("[git-daemon] ")
+
+    // Create a new server instance
+    server := daemon.Server{
+		MaxConnections:       0,                                  // unlimited concurrent connections
+        Timeout:              3,                                  // 3 seconds timeout
+        BasePath:             "/srv/git",                         // base path for all repositories
+        ExportAll:            true,                               // export all repositories
+		UploadPackHandler:    daemon.DefaultUploadPackHandler,    // enable upload-pack
+		UploadArchiveHandler: daemon.DefaultUploadArchiveHandler, // enable upload-archive
+		ReceivePackHandler:   daemon.DefaultReceivePackHandler,   // enable receive-pack 💃
+        AccessHook:           accessHook,                         //
+		Logger:               logger,                             // use logger
+        //Verbose:              true,                             // enable verbose logging
+	}
+
+    // Start server on the default port (9418)
+    if err := server.ListenAndServe("0.0.0.0:9418"); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## License
+
+[MIT](./LICENSE)
