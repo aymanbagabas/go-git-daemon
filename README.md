@@ -1,5 +1,12 @@
 # Git Daemon
 
+<p>
+    <a href="https://github.com/aymanbagabas/go-git-daemon/releases"><img src="https://img.shields.io/github/release/aymanbagabas/go-git-daemon.svg" alt="Latest Release"></a>
+    <a href="https://pkg.go.dev/github.com/aymanbagabas/go-git-daemon?tab=doc"><img src="https://godoc.org/github.com/golang/gddo?status.svg" alt="Go Docs"></a>
+    <a href="https://codecov.io/gh/aymanbagabas/go-git-daemon"><img alt="Codecov branch" src="https://img.shields.io/codecov/c/github/aymanbagabas/go-git-daemon/master.svg"></a>
+    <a href="https://goreportcard.com/report/github.com/aymanbagabas/go-git-daemon"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/aymanbagabas/go-git-daemon"></a>
+</p>
+
 This is a Go implementation of the [Git Transport][git-transport] protocol and `git-daemon` binary. It is meant to be used as a Go library to replace [`git-daemon`](https://git-scm.com/docs/git-daemon), but can also be used as a binary to serve repositories using git transport.
 
 [git-transport]: https://git-scm.com/docs/pack-protocol#_git_transport
