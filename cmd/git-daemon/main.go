@@ -81,19 +81,8 @@ func main() {
 	}
 
 	if accessHook != "" {
-		run := true
 		stat, err := os.Stat(accessHook)
-		if err != nil {
-			log.Printf("access hook %q not found", accessHook)
-			run = false
-		}
-
-		if stat.Mode()&0111 == 0 {
-			log.Printf("access hook %q is not executable", accessHook)
-			run = false
-		}
-
-		if run {
+		if err == nil && stat.Mode()&0111 != 0 {
 			daemon.DefaultServer.AccessHook = func(service daemon.Service, path, host, canon, ipAddr, port, remoteAddr string) error {
 				var stdout bytes.Buffer
 				cmd := exec.Command(accessHook, service.String(), path, host, canon, ipAddr, port)
@@ -133,6 +122,10 @@ func main() {
 
 				return nil
 			}
+		} else if err != nil {
+			log.Printf("access hook %q not found: %s", accessHook, err)
+		} else {
+			log.Printf("access hook %q not executable: %v", accessHook, stat.Mode().String())
 		}
 	}
 
