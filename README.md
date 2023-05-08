@@ -72,8 +72,8 @@ import (
 )
 
 func main() {
-    // Enable upload-archive using the default handler (requires `git` in $PATH)
-    daemon.HandleUploadArchive(daemon.DefaultUploadArchiveHandler)
+    // Enable upload-archive
+    daemon.Enable(daemon.UploadArchiveService)
 
     // Start server on the default port :9418
     if err := daemon.ListenAndServe(":9418"); err != nil {
@@ -119,13 +119,15 @@ func main() {
         Timeout:              3,                                  // 3 seconds timeout
         BasePath:             "/srv/git",                         // base path for all repositories
         ExportAll:            true,                               // export all repositories
-        UploadPackHandler:    daemon.DefaultUploadPackHandler,    // enable upload-pack
-        UploadArchiveHandler: daemon.DefaultUploadArchiveHandler, // enable upload-archive
-        ReceivePackHandler:   daemon.DefaultReceivePackHandler,   // enable receive-pack 💃
         AccessHook:           accessHook,                         // use a custom access hook
         Logger:               logger,                             // use logger
         //Verbose:              true,                             // enable verbose logging
     }
+
+    // Enable all services 💃
+    server.Enable(daemon.UploadPackService)
+    server.Enable(daemon.UploadArchiveService)
+    server.Enable(daemon.ReceivePackService)
 
     // Start server on the default port (9418)
     if err := server.ListenAndServe("0.0.0.0:9418"); err != nil {
