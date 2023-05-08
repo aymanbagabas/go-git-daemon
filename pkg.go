@@ -63,3 +63,13 @@ func HandleUploadArchive(h ServiceHandler) {
 func HandleReceivePack(h ServiceHandler) {
 	DefaultServer.HandleReceivePack(h)
 }
+
+// Enable enables the given Git transport service.
+func Enable(s Service) {
+	DefaultServer.Enable(s)
+}
+
+// Disable disables the given Git transport service.
+func Disable(s Service) {
+	DefaultServer.Disable(s)
+}

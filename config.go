@@ -128,6 +128,7 @@ type Server struct {
 	// Default is a no-op.
 	AccessHook AccessHook
 
+	enabled     map[Service]bool
 	listener    net.Listener
 	connections *connections
 	wg          sync.WaitGroup
@@ -146,9 +147,16 @@ var (
 	DefaultServer = Server{
 		MaxConnections:       32,
 		UploadPackHandler:    DefaultUploadPackHandler,
-		UploadArchiveHandler: nil,
-		ReceivePackHandler:   nil,
+		UploadArchiveHandler: DefaultUploadArchiveHandler,
+		ReceivePackHandler:   DefaultReceivePackHandler,
 		Logger:               log.Default(),
+		enabled:              defaultEnabled,
+	}
+
+	defaultEnabled = map[Service]bool{
+		UploadPackService:    true,
+		UploadArchiveService: false,
+		ReceivePackService:   false,
 	}
 
 	// DefaultServiceHandler is the default Git transport service handler.
@@ -251,4 +259,18 @@ func (s *Server) HandleUploadArchive(handler ServiceHandler) {
 // HandleReceivePack sets the receive-pack service handler.
 func (s *Server) HandleReceivePack(handler ServiceHandler) {
 	s.ReceivePackHandler = handler
+}
+
+// Enable enables the given service.
+func (s *Server) Enable(service Service) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enabled[service] = true
+}
+
+// Disable disables the given service.
+func (s *Server) Disable(service Service) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enabled[service] = false
 }

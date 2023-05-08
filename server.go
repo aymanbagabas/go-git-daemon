@@ -60,6 +60,10 @@ func (s *Server) init() {
 		}
 	}
 
+	if s.enabled == nil {
+		s.enabled = defaultEnabled
+	}
+
 	if s.AccessHook == nil {
 		s.AccessHook = defaultAccessHook
 	}
@@ -226,7 +230,7 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 			handler = s.ReceivePackHandler
 		}
 
-		if handler == nil {
+		if !s.enabled[service] {
 			s.debugf("%s service not enabled for %s", service, c.RemoteAddr())
 			s.fatal(c, ErrAccessDenied) // nolint: errcheck
 			return
