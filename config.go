@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -14,17 +17,22 @@ import (
 type Service string
 
 const (
-	// UploadPack is the upload-pack service.
-	UploadPack Service = "upload-pack"
-	// UploadArchive is the upload-archive service.
-	UploadArchive Service = "upload-archive"
-	// ReceivePack is the receive-pack service.
-	ReceivePack Service = "receive-pack"
+	// UploadPackService is the upload-pack service.
+	UploadPackService Service = "git-upload-pack"
+	// UploadArchiveService is the upload-archive service.
+	UploadArchiveService Service = "git-upload-archive"
+	// ReceivePackService is the receive-pack service.
+	ReceivePackService Service = "git-receive-pack"
 )
 
 // String returns the string representation of the service.
 func (s Service) String() string {
 	return string(s)
+}
+
+// Name returns the name of the service.
+func (s Service) Name() string {
+	return strings.TrimPrefix(s.String(), "git-")
 }
 
 // ServiceHandler is a Git transport daemon service handler. It a repository
@@ -33,7 +41,7 @@ func (s Service) String() string {
 //
 // The command function can be used to modify the Git command before it is run
 // (for example to add environment variables).
-type ServiceHandler func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error
+type ServiceHandler func(ctx context.Context, path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error
 
 // AccessHook is a git-daemon access hook. It takes a service name, repository
 // path, and a client address as arguments.
@@ -165,8 +173,8 @@ var (
 	//  daemon.DefaultServer.ReceivePackHandler = myHandler(daemon.ReceivePack, "/path/to/my/git")
 	//
 	DefaultServiceHandler = func(service Service, gitBinPath string) ServiceHandler {
-		return func(path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error {
-			cmd := exec.Command(gitBinPath, service.String(), ".") // nolint: gosec
+		return func(ctx context.Context, path string, conn net.Conn, cmdFunc func(*exec.Cmd)) error {
+			cmd := exec.CommandContext(ctx, gitBinPath, service.Name(), ".") // nolint: gosec
 			cmd.Dir = path
 			if cmdFunc != nil {
 				cmdFunc(cmd)
@@ -191,12 +199,11 @@ var (
 				return err
 			}
 
-			var errg errgroup.Group
+			errg, ctx := errgroup.WithContext(ctx)
 
 			// stdin
 			errg.Go(func() error {
 				defer stdin.Close() // nolint: errcheck
-
 				_, err := io.Copy(stdin, conn)
 				return err
 			})
@@ -214,25 +221,21 @@ var (
 			})
 
 			if err := errg.Wait(); err != nil {
-				return err
+				return errors.Join(err, cmd.Wait())
 			}
 
-			if err := cmd.Wait(); err != nil {
-				return err
-			}
-
-			return nil
+			return cmd.Wait()
 		}
 	}
 
 	// DefaultUploadPackHandler is the default upload-pack service handler.
-	DefaultUploadPackHandler = DefaultServiceHandler(UploadPack, GitBinPath)
+	DefaultUploadPackHandler = DefaultServiceHandler(UploadPackService, GitBinPath)
 
 	// DefaultUploadArchiveHandler is the default upload-archive service handler.
-	DefaultUploadArchiveHandler = DefaultServiceHandler(UploadArchive, GitBinPath)
+	DefaultUploadArchiveHandler = DefaultServiceHandler(UploadArchiveService, GitBinPath)
 
 	// DefaultReceivePackHandler is the default receive-pack service handler.
-	DefaultReceivePackHandler = DefaultServiceHandler(ReceivePack, GitBinPath)
+	DefaultReceivePackHandler = DefaultServiceHandler(ReceivePackService, GitBinPath)
 )
 
 // HandleUploadPack sets the upload-pack service handler.

@@ -215,14 +215,14 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 		}
 
 		var handler ServiceHandler
-		service := Service(bytes.TrimPrefix(split[0], []byte("git-")))
+		service := Service(split[0])
 
 		switch service {
-		case UploadPack:
+		case UploadPackService:
 			handler = s.UploadPackHandler
-		case UploadArchive:
+		case UploadArchiveService:
 			handler = s.UploadArchiveHandler
-		case ReceivePack:
+		case ReceivePackService:
 			handler = s.ReceivePackHandler
 		}
 
@@ -232,39 +232,38 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 			return
 		}
 
-		opts := bytes.Split(split[1], []byte{'\x00'})
-		if len(opts) == 0 {
+		opts := bytes.SplitN(split[1], []byte{0}, 3)
+		if len(opts) != 3 {
 			s.fatal(c, ErrInvalidRequest) // nolint: errcheck
 			return
 		}
 
-		var host string
-		var version int
+		host := strings.TrimPrefix(string(opts[1]), "host=")
+		extraParams := map[string]string{}
 
-		for _, o := range opts {
+		buf := bytes.TrimPrefix(opts[2], []byte{0})
+		for _, o := range bytes.Split(buf, []byte{0}) {
 			opt := string(o)
 			if opt == "" {
 				continue
 			}
 
 			if s.Verbose {
-				s.debugf("received option %q", opt)
+				s.debugf("received extra param %q", opt)
 			}
 
-			switch {
-			case strings.HasPrefix(opt, "host="):
-				host = strings.TrimPrefix(opt, "host=")
-			case strings.HasPrefix(opt, "version="):
-				v, err := strconv.Atoi(strings.TrimPrefix(opt, "version="))
-				if err != nil {
-					s.logf("invalid version %q: %v", opt, err)
-				}
-				version = v
+			kv := strings.SplitN(opt, "=", 2)
+			if len(kv) != 2 {
+				s.logf("invalid option %q", opt)
+				continue
 			}
+
+			extraParams[kv[0]] = kv[1]
 		}
 
-		if s.Verbose {
-			s.debugf("protocol version %d", version)
+		version := extraParams["version"]
+		if s.Verbose && version != "" {
+			s.debugf("protocol version %s", version)
 		}
 
 		var (
@@ -305,7 +304,7 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 						break
 					}
 				}
-				if ip == "" && len(ipAddrs) > 0 {
+				if ip == "" && len(ipAddrs) > -1 {
 					ipAddr := ipAddrs[0]
 					ip = ipAddrs[0].String()
 					if ipAddr.To16() != nil {
@@ -370,15 +369,22 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 				s.logf("error splitting remote address: %v", err)
 			}
 
-			if version >= 0 {
-				cmd.Env = append(cmd.Env, "GIT_PROTOCOL="+strconv.Itoa(version))
+			if len(extraParams) > 0 {
+				var gitProto string
+				for k, v := range extraParams {
+					if len(gitProto) > 0 {
+						gitProto += ":"
+					}
+					gitProto += k + "=" + v
+				}
+				cmd.Env = append(cmd.Env, "GIT_PROTOCOL="+gitProto)
 			}
 		}
 
-		if err := handler(path, c, func(cmd *exec.Cmd) {
+		if err := handler(ctx, path, c, func(cmd *exec.Cmd) {
 			if cmd != nil {
 				cmdFunc(cmd)
-				if service == UploadPack {
+				if service == UploadPackService {
 					// Don't try /.git if directory is not git, we handle that
 					// here in the server using `StrictPaths`.
 					cmd.Args = append(cmd.Args, "--strict")

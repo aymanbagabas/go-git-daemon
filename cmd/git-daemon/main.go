@@ -46,11 +46,11 @@ func main() {
 	for _, v := range enables {
 		service := daemon.Service(strings.ToLower(v))
 		switch service {
-		case daemon.UploadPack:
+		case daemon.UploadPackService:
 			daemon.DefaultServer.UploadPackHandler = daemon.DefaultUploadPackHandler
-		case daemon.UploadArchive:
+		case daemon.UploadArchiveService:
 			daemon.DefaultServer.UploadArchiveHandler = daemon.DefaultUploadArchiveHandler
-		case daemon.ReceivePack:
+		case daemon.ReceivePackService:
 			daemon.DefaultServer.ReceivePackHandler = daemon.DefaultReceivePackHandler
 		}
 	}
@@ -58,11 +58,11 @@ func main() {
 	for _, v := range disables {
 		service := daemon.Service(strings.ToLower(v))
 		switch service {
-		case daemon.UploadPack:
+		case daemon.UploadPackService:
 			daemon.DefaultServer.UploadPackHandler = nil
-		case daemon.UploadArchive:
+		case daemon.UploadArchiveService:
 			daemon.DefaultServer.UploadArchiveHandler = nil
-		case daemon.ReceivePack:
+		case daemon.ReceivePackService:
 			daemon.DefaultServer.ReceivePackHandler = nil
 		}
 	}

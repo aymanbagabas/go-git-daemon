@@ -11,5 +11,6 @@ require (
 
 require (
 	github.com/git-lfs/pktline v0.0.0-20230103162542-ca444d533ef1 // indirect
+	github.com/stretchr/testify v1.7.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 )
