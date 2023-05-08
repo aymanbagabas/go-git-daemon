@@ -75,8 +75,8 @@ func main() {
     // Enable upload-archive using the default handler (requires `git` in $PATH)
     daemon.HandleUploadArchive(daemon.DefaultUploadArchiveHandler)
 
-    // Start server
-    if err := daemon.ListenAndServe(daemon.DefaultAddr); err != nil {
+    // Start server on the default port :9418
+    if err := daemon.ListenAndServe(":9418"); err != nil {
         log.Fatal(err)
     }
 }
