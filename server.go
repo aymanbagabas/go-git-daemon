@@ -237,7 +237,7 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 		}
 
 		opts := bytes.SplitN(split[1], []byte{0}, 3)
-		if len(opts) != 3 {
+		if len(opts) < 2 {
 			s.fatal(c, ErrInvalidRequest) // nolint: errcheck
 			return
 		}
@@ -245,29 +245,31 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 		host := strings.TrimPrefix(string(opts[1]), "host=")
 		extraParams := map[string]string{}
 
-		buf := bytes.TrimPrefix(opts[2], []byte{0})
-		for _, o := range bytes.Split(buf, []byte{0}) {
-			opt := string(o)
-			if opt == "" {
-				continue
+		if len(opts) > 2 {
+			buf := bytes.TrimPrefix(opts[2], []byte{0})
+			for _, o := range bytes.Split(buf, []byte{0}) {
+				opt := string(o)
+				if opt == "" {
+					continue
+				}
+
+				if s.Verbose {
+					s.debugf("received extra param %q", opt)
+				}
+
+				kv := strings.SplitN(opt, "=", 2)
+				if len(kv) != 2 {
+					s.logf("invalid option %q", opt)
+					continue
+				}
+
+				extraParams[kv[0]] = kv[1]
 			}
 
-			if s.Verbose {
-				s.debugf("received extra param %q", opt)
+			version := extraParams["version"]
+			if s.Verbose && version != "" {
+				s.debugf("protocol version %s", version)
 			}
-
-			kv := strings.SplitN(opt, "=", 2)
-			if len(kv) != 2 {
-				s.logf("invalid option %q", opt)
-				continue
-			}
-
-			extraParams[kv[0]] = kv[1]
-		}
-
-		version := extraParams["version"]
-		if s.Verbose && version != "" {
-			s.debugf("protocol version %s", version)
 		}
 
 		var (
